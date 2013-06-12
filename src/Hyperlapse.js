@@ -366,69 +366,80 @@ var Hyperlapse = function(container, params) {
 
 	var handleDirectionsRoute = function(response) {
 		if(!_is_playing) {
+			var responses = null;
 
-			var route = response.routes[0];
-			var path = route.overview_path;
-			var legs = route.legs;
+			responses = (Array.isArray(response) ? response : null);
 
-			var total_distance = 0;
-			for(var i=0; i<legs.length; ++i) {
-				total_distance += legs[i].distance.value;
+			if (!responses && !Array.isArray(response) && response instanceof Object && response != null)
+			{
+				responses = [];
+				responses.push(response);
 			}
 
-			var segment_length = total_distance/_max_points;
-			_d = (segment_length < _distance_between_points) ? _d = _distance_between_points : _d = segment_length;
+			responses.forEach( function(response) {
+				var route = response.routes[0];
+				var path = route.overview_path;
+				var legs = route.legs;
 
-			var d = 0;
-			var r = 0;
-			var a, b;
-
-			for(i=0; i<path.length; i++) {
-				if(i+1 < path.length) {
-
-					a = path[i];
-					b = path[i+1];
-					d = google.maps.geometry.spherical.computeDistanceBetween(a, b);
-
-					if(r > 0 && r < d) {
-						a = pointOnLine(r/d, a, b);
-						d = google.maps.geometry.spherical.computeDistanceBetween(a, b);
-						_raw_points.push(a);
-
-						r = 0;
-					} else if(r > 0 && r > d) {
-						r -= d;
-					}
-
-					if(r === 0) {
-						var segs = Math.floor(d/_d);
-
-						if(segs > 0) {
-							for(var j=0; j<segs; j++) {
-								var t = j/segs;
-
-								if( t>0 || (t+i)===0  ) { // not start point
-									var way = pointOnLine(t, a, b);
-									_raw_points.push(way);
-								}
-							}
-
-							r = d-(_d*segs);
-						} else {
-							r = _d*( 1-(d/_d) );
-						}
-					}
-
-				} else {
-					_raw_points.push(path[i]);
+				var total_distance = 0;
+				for(var i=0; i<legs.length; ++i) {
+					total_distance += legs[i].distance.value;
 				}
-			}
 
-			parsePoints(response);
+				var segment_length = total_distance/_max_points;
+				_d = (segment_length < _distance_between_points) ? _d = _distance_between_points : _d = segment_length;
+
+				var d = 0;
+				var r = 0;
+				var a, b;
+
+				for(i=0; i<path.length; i++) {
+					if(i+1 < path.length) {
+
+						a = path[i];
+						b = path[i+1];
+						d = google.maps.geometry.spherical.computeDistanceBetween(a, b);
+
+						if(r > 0 && r < d) {
+							a = pointOnLine(r/d, a, b);
+							d = google.maps.geometry.spherical.computeDistanceBetween(a, b);
+							_raw_points.push(a);
+
+							r = 0;
+						} else if(r > 0 && r > d) {
+							r -= d;
+						}
+
+						if(r === 0) {
+							var segs = Math.floor(d/_d);
+
+							if(segs > 0) {
+								for(var j=0; j<segs; j++) {
+									var t = j/segs;
+
+									if( t>0 || (t+i)===0  ) { // not start point
+										var way = pointOnLine(t, a, b);
+										_raw_points.push(way);
+									}
+								}
+
+								r = d-(_d*segs);
+							} else {
+								r = _d*( 1-(d/_d) );
+							}
+						}
+
+					} else {
+						_raw_points.push(path[i]);
+					}
+				}
+				parsePoints(response);
+
+		});	
 
 		} else {
-			self.pause();
-			handleDirectionsRoute(response);
+				self.pause();
+				handleDirectionsRoute(response);
 		}
 	};
 
@@ -699,7 +710,7 @@ var Hyperlapse = function(container, params) {
 	 * @param {Object} parameters
 	 * @param {Number} [parameters.distance_between_points]
 	 * @param {Number} [parameters.max_points]
-	 * @param {google.maps.DirectionsResult} parameters.route
+	 * @param, optional array {google.maps.DirectionsResult} parameters.route
 	 */
 	this.generate = function( params ) {
 
@@ -710,6 +721,7 @@ var Hyperlapse = function(container, params) {
 			var p = params || {};
 			_distance_between_points = p.distance_between_points || _distance_between_points;
 			_max_points = p.max_points || _max_points;
+
 
 			if(p.route) {
 				handleDirectionsRoute(p.route);
