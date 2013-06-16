@@ -111,7 +111,7 @@ var HyperlapsePoint = function(location, pano_id, params ) {
  * @param {Number} [params.elevation=0]
  * @param {Number} [params.tilt=0]
  */
-var Hyperlapse = function(container, params) {
+var Hyperlapse = function(container, params, renderer) {
 
 	"use strict";
 
@@ -135,7 +135,7 @@ var Hyperlapse = function(container, params) {
 		_forward = true,
 		_lookat_heading = 0, _lookat_elevation = 0,
 		_canvas, _context,
-		_camera, _scene, _renderer, _mesh,
+		_camera, _scene, _renderer = renderer || false, _mesh,
 		_loader, _cancel_load = false,
 		_ctime = Date.now(),
 		_ptime = 0, _dtime = 0,
@@ -189,8 +189,9 @@ var Hyperlapse = function(container, params) {
       return false;
     }
   };
-
-  _renderer = isWebGL() ? new THREE.WebGLRenderer() : new THREE.CanvasRenderer();
+	if (!_renderer) {
+		_renderer = isWebGL() ? new THREE.WebGLRenderer() : new THREE.CanvasRenderer();
+	}
 	_renderer.autoClearColor = false;
 	_renderer.setSize( _w, _h );
 
@@ -200,8 +201,9 @@ var Hyperlapse = function(container, params) {
 	);
 	_scene.add( _mesh );
 
-	_container.appendChild( _renderer.domElement );
-
+	if (!_container.querySelector('canvas')) {
+		_container.appendChild( _renderer.domElement );
+	}
 	_loader = new GSVPANO.PanoLoader( {zoom: _zoom} );
 	_loader.onError = function(message) {
 		handleError({message:message});
@@ -366,80 +368,69 @@ var Hyperlapse = function(container, params) {
 
 	var handleDirectionsRoute = function(response) {
 		if(!_is_playing) {
-			var responses = null;
 
-			responses = (Array.isArray(response) ? response : null);
+			var route = response.routes[0];
+			var path = route.overview_path;
+			var legs = route.legs;
 
-			if (!responses && !Array.isArray(response) && response instanceof Object && response != null)
-			{
-				responses = [];
-				responses.push(response);
+			var total_distance = 0;
+			for(var i=0; i<legs.length; ++i) {
+				total_distance += legs[i].distance.value;
 			}
 
-			responses.forEach( function(response) {
-				var route = response.routes[0];
-				var path = route.overview_path;
-				var legs = route.legs;
+			var segment_length = total_distance/_max_points;
+			_d = (segment_length < _distance_between_points) ? _d = _distance_between_points : _d = segment_length;
 
-				var total_distance = 0;
-				for(var i=0; i<legs.length; ++i) {
-					total_distance += legs[i].distance.value;
-				}
+			var d = 0;
+			var r = 0;
+			var a, b;
 
-				var segment_length = total_distance/_max_points;
-				_d = (segment_length < _distance_between_points) ? _d = _distance_between_points : _d = segment_length;
+			for(i=0; i<path.length; i++) {
+				if(i+1 < path.length) {
 
-				var d = 0;
-				var r = 0;
-				var a, b;
+					a = path[i];
+					b = path[i+1];
+					d = google.maps.geometry.spherical.computeDistanceBetween(a, b);
 
-				for(i=0; i<path.length; i++) {
-					if(i+1 < path.length) {
-
-						a = path[i];
-						b = path[i+1];
+					if(r > 0 && r < d) {
+						a = pointOnLine(r/d, a, b);
 						d = google.maps.geometry.spherical.computeDistanceBetween(a, b);
+						_raw_points.push(a);
 
-						if(r > 0 && r < d) {
-							a = pointOnLine(r/d, a, b);
-							d = google.maps.geometry.spherical.computeDistanceBetween(a, b);
-							_raw_points.push(a);
-
-							r = 0;
-						} else if(r > 0 && r > d) {
-							r -= d;
-						}
-
-						if(r === 0) {
-							var segs = Math.floor(d/_d);
-
-							if(segs > 0) {
-								for(var j=0; j<segs; j++) {
-									var t = j/segs;
-
-									if( t>0 || (t+i)===0  ) { // not start point
-										var way = pointOnLine(t, a, b);
-										_raw_points.push(way);
-									}
-								}
-
-								r = d-(_d*segs);
-							} else {
-								r = _d*( 1-(d/_d) );
-							}
-						}
-
-					} else {
-						_raw_points.push(path[i]);
+						r = 0;
+					} else if(r > 0 && r > d) {
+						r -= d;
 					}
-				}
-				parsePoints(response);
 
-		});	
+					if(r === 0) {
+						var segs = Math.floor(d/_d);
+
+						if(segs > 0) {
+							for(var j=0; j<segs; j++) {
+								var t = j/segs;
+
+								if( t>0 || (t+i)===0  ) { // not start point
+									var way = pointOnLine(t, a, b);
+									_raw_points.push(way);
+								}
+							}
+
+							r = d-(_d*segs);
+						} else {
+							r = _d*( 1-(d/_d) );
+						}
+					}
+
+				} else {
+					_raw_points.push(path[i]);
+				}
+			}
+
+			parsePoints(response);
 
 		} else {
-				self.pause();
-				handleDirectionsRoute(response);
+			self.pause();
+			handleDirectionsRoute(response);
 		}
 	};
 
@@ -460,7 +451,6 @@ var Hyperlapse = function(container, params) {
 			var angle = Math.atan( Math.abs(dif)/d ).toDeg();
 			_position_y = (dif<0) ? -angle : angle;
 		}
-
 		handleFrame({
 			position:_point_index,
 			point: _h_points[_point_index]
@@ -468,7 +458,7 @@ var Hyperlapse = function(container, params) {
 	};
 
 	var render = function() {
-		if(!_is_loading && self.length()>0) {
+		if(!_is_loading && self.length()>0 && _is_playing) {
 			var t = _point_index/(self.length());
 
 			var o_x = self.position.x + (self.offset.x * t);
@@ -508,7 +498,6 @@ var Hyperlapse = function(container, params) {
 			if(_is_playing) loop();
 			_dtime = 0;
 		}
-
 		requestAnimationFrame( animate );
 		render();
 	};
@@ -639,6 +628,10 @@ var Hyperlapse = function(container, params) {
 		return _h_points[_point_index];
 	};
 
+	this.setCurrentPoint = function(point)
+	{
+		_point_index = point;
+	}
 	/**
 	 * @param {google.maps.LatLng} point
 	 * @param {boolean} call_service
@@ -710,7 +703,7 @@ var Hyperlapse = function(container, params) {
 	 * @param {Object} parameters
 	 * @param {Number} [parameters.distance_between_points]
 	 * @param {Number} [parameters.max_points]
-	 * @param, optional array {google.maps.DirectionsResult} parameters.route
+	 * @param {google.maps.DirectionsResult} parameters.route
 	 */
 	this.generate = function( params ) {
 
@@ -721,7 +714,6 @@ var Hyperlapse = function(container, params) {
 			var p = params || {};
 			_distance_between_points = p.distance_between_points || _distance_between_points;
 			_max_points = p.max_points || _max_points;
-
 
 			if(p.route) {
 				handleDirectionsRoute(p.route);

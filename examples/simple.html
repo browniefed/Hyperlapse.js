@@ -43,6 +43,7 @@
 
 			directions_service.route(route.request, function(response, status) {
 				if (status == google.maps.DirectionsStatus.OK) {
+					console.log({route:response});
 					hyperlapse.generate( {route:response} );
 				} else {
 					console.log(status);
